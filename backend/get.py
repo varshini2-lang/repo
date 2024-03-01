@@ -1,36 +1,53 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
-import httpx
-import base64
+from fastapi import FastAPI, Query, HTTPException, status
+from base64 import b64decode
+import requests
+
+# Replace with the actual MAS service URL and API endpoint
+MAS_SERVICE_URL = "https://cia-mas.cialabs.tech/"  # Replace with actual URL
+MAS_SERVICE_ENDPOINT = "/upload"  # Replace with actual endpoint
 
 app = FastAPI()
 
-# Replace 'YOUR_MAS_SERVICE_URL' with the actual URL of your MAS service
-MAS_SERVICE_URL = "http://noobed-max/test_model"
-
 @app.get("/test_model")
-async def test_model(base64_data: str, model_name: str):
+async def test_model(base64: str = Query(..., description="Base64-encoded image data"), model_name: str = Query(..., description="Name of the model to use")):
+    """
+    Tests the specified model on the provided image data.
+
+    Query Parameters:
+    - base64: Base64-encoded image data (required).
+    - model_name: Name of the model to use (required).
+
+    Raises:
+    - HTTPException: 400 Bad Request if required parameters are missing or invalid.
+    - HTTPException: Status code received from the MAS service (potential error handling).
+    """
+
+    if not all([base64, model_name]):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing required parameters: base64 and model_name")
+
     try:
-        # Your base64 decoding logic here if needed
-        # decoded_data = base64.b64decode(base64_data)
+        # Validate and decode base64 image data
+        image_data = b64decode(base64)
 
-        # Making a request to the MAS service
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                MAS_SERVICE_URL,
-                params={"base64_data": base64_data, "model_name": model_name},
-            )
+        # Prepare request data for the MAS service
+        data = {"image": ("image", image_data), "model_name": model_name}
 
-        # Check if the request was successful (status code 200)
-        response.raise_for_status()
+        # Send request to the MAS service using the 'data' parameter
+        response = requests.post(f"{MAS_SERVICE_URL}{MAS_SERVICE_ENDPOINT}", data=data)
 
-        # Assuming MAS service returns JSON response, you can return it
-        return JSONResponse(content=response.json(), status_code=200)
+        # Check for successful response
+        if response.status_code == 200:
+            # Return the response from the MAS service as JSON
+            return response.json()
+        else:
+            # Raise an exception with the error details from the MAS service
+            raise HTTPException(status_code=response.status_code, detail=response.text)
 
-    except httpx.HTTPError as e:
-        # Handle HTTP errors from MAS service
-        return JSONResponse(content={"error": f"MAS service error: {str(e)}"}, status_code=e.response.status_code)
+    except (ValueError, requests.exceptions.RequestException) as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error sending request to MAS service: {str(e)}")
 
-    except Exception as e:
-        # Handle other exceptions
-        return JSONResponse(content={"error": f"Internal server error: {str(e)}"}, status_code=500)
+# ... other app routes and configuration
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("your_filename:app", host="0.0.0.0", port=8000, reload=True)
